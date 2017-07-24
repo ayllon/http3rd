@@ -2,90 +2,24 @@ package http3rd
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	"gitlab.cern.ch/flutter/go-proxy"
-	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 )
 
 type (
+	// Params configures the third party copy request
 	Params struct {
 		UserCert, UserKey string
 		CAPath            string
 		Insecure          bool
 	}
-
-	TokenRequest struct {
-		Caveats []string `json:"caveats,omitempty"`
-	}
-
-	TokenResponse struct {
-		Macaroon string `json:"macaroon"`
-		Uri      struct {
-			TargetWithMacaroon string `json:"targetWithMacaroon"`
-			BaseWithMacaroon   string `json:"baseWithMacaroon"`
-			Target             string `json:"target"`
-			Base               string `json:"base"`
-		} `json:"uri"`
-	}
 )
-
-// getTokenFor returns a token for the resource
-func getTokenFor(client *http.Client, resource string) (*TokenResponse, error) {
-	payload := &TokenRequest{
-		Caveats: []string{"activity:UPLOAD"},
-	}
-	payloadData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	req := &http.Request{
-		Method: "POST",
-		Header: http.Header{},
-	}
-	req.Header.Add("Content-Type", "application/macaroon-request")
-	req.URL, err = url.Parse(resource)
-	if err != nil {
-		return nil, err
-	}
-	req.Body = ioutil.NopCloser(bytes.NewReader(payloadData))
-	req.ContentLength = int64(len(payloadData))
-
-	reqRaw, err := httputil.DumpRequest(req, true)
-	if err != nil {
-		return nil, err
-	}
-	logrus.Debug(string(reqRaw))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	logrus.Debug("Response status code: ", resp.StatusCode)
-
-	respBody, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	logrus.Debug("Response: ", string(respBody))
-
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("Unexpected status code: %d", resp.StatusCode)
-	}
-
-	tokenResponse := &TokenResponse{}
-	err = json.Unmarshal(respBody, tokenResponse)
-	return tokenResponse, err
-}
 
 // http.Do only follows redirects for GET, HEAD, POST and PUT
 // For COPY we have to do it ourselves (bummer)
@@ -112,21 +46,31 @@ func doWithRedirect(client *http.Client, r *http.Request) (resp *http.Response, 
 	return
 }
 
-// requestRawCopy triggers the COPY method
-func requestRawCopy(client *http.Client, source string, destination, macaroon string) error {
+// buildCopyRequest returns an initialized HTTP COPY request
+func buildCopyRequest(source, destination, macaroon string) (*http.Request, error) {
 	var err error
+
 	req := &http.Request{
 		Method: "COPY",
 		Header: http.Header{},
 	}
 	req.URL, err = url.Parse(source)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	req.Header.Add("Destination", destination)
 	req.Header.Add("X-No-Delegate", "true")
 	req.Header.Add("TransferHeaderAuthorization", fmt.Sprint("BEARER ", macaroon))
+	return req, nil
+}
+
+// requestRawCopy triggers the COPY method
+func requestRawCopy(client *http.Client, source string, destination, macaroon string) error {
+	req, err := buildCopyRequest(source, destination, macaroon)
+	if err != nil {
+		return err
+	}
 
 	rawReq, err := httputil.DumpRequest(req, false)
 	if err != nil {
@@ -153,20 +97,20 @@ func requestRawCopy(client *http.Client, source string, destination, macaroon st
 	return nil
 }
 
-// DoHTTP3rdCopy triggers a third party copy
-func DoHTTP3rdCopy(params *Params, source, destination string) error {
+// buildHttpClient returns an initialized http.Client
+func buildHttpClient(params *Params) (*http.Client, error) {
 	logrus.Debug("User cert: ", params.UserCert)
 	logrus.Debug("User key: ", params.UserKey)
 
 	cert, err := tls.LoadX509KeyPair(params.UserCert, params.UserKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	logrus.Debug("CA Path: ", params.CAPath)
 	rootCerts, err := proxy.LoadCAPath(params.CAPath, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, ca := range rootCerts.CaByHash {
 		logrus.Debug("CA: ", proxy.NameRepr(&ca.Subject))
@@ -179,16 +123,24 @@ func DoHTTP3rdCopy(params *Params, source, destination string) error {
 			InsecureSkipVerify: params.Insecure,
 		},
 	}
-	client := &http.Client{
+	return &http.Client{
 		Transport: transport,
-	}
+	}, nil
+}
 
-	destinationToken, err := getTokenFor(client, destination)
+// DoHTTP3rdCopy triggers a third party copy
+func DoHTTP3rdCopy(params *Params, source, destination string) error {
+	client, err := buildHttpClient(params)
 	if err != nil {
 		return err
 	}
 
-	logrus.Info("Got token ", destinationToken.Macaroon)
+	destinationToken, err := getMacaroon(client, destination)
+	if err != nil {
+		return err
+	}
+
+	logrus.Info("Got macaroon ", destinationToken.Macaroon)
 
 	return requestRawCopy(client, source, destination, destinationToken.Macaroon)
 }
