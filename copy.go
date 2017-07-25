@@ -61,6 +61,7 @@ func buildCopyRequest(source, destination, macaroon string) (*http.Request, erro
 
 	req.Header.Add("Destination", destination)
 	req.Header.Add("X-No-Delegate", "true")
+	req.Header.Add("Credential", "none")
 	req.Header.Add("TransferHeaderAuthorization", fmt.Sprint("BEARER ", macaroon))
 	return req, nil
 }
