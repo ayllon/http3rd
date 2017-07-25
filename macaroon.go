@@ -33,7 +33,7 @@ type (
 // buildMacaroonRequest builds a Macaroon request
 func buildMacaroonRequest(resource string) (*http.Request, error) {
 	payload := &MacaroonRequest{
-		Caveats: []string{"activity:UPLOAD"},
+		Caveats: []string{"activity:UPLOAD,READ_METADATA"},
 	}
 	payloadData, err := json.Marshal(payload)
 	if err != nil {
