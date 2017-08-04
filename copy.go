@@ -2,15 +2,13 @@ package http3rd
 
 import (
 	"bufio"
-	"crypto/tls"
-	"errors"
 	"fmt"
-	"github.com/Sirupsen/logrus"
-	"gitlab.cern.ch/flutter/go-proxy"
+	"github.com/sirupsen/logrus"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"time"
+	"errors"
 )
 
 type (
@@ -19,7 +17,6 @@ type (
 		UserCert, UserKey string
 		CAPath            string
 		Insecure          bool
-		Lifetime          time.Duration
 	}
 )
 
@@ -100,60 +97,24 @@ func requestRawCopy(client *http.Client, source string, destination, macaroon st
 	return nil
 }
 
-// buildHttpClient returns an initialized http.Client
-func buildHttpClient(params *Params) (*http.Client, error) {
-	logrus.Debug("User cert: ", params.UserCert)
-	logrus.Debug("User key: ", params.UserKey)
-
-	cert, err := tls.LoadX509KeyPair(params.UserCert, params.UserKey)
-	if err != nil {
-		return nil, err
-	}
-
-	logrus.Debug("CA Path: ", params.CAPath)
-	rootCerts, err := proxy.LoadCAPath(params.CAPath, false)
-	if err != nil {
-		return nil, err
-	}
-	for _, ca := range rootCerts.CaByHash {
-		logrus.Debug("CA: ", proxy.NameRepr(&ca.Subject))
-	}
-
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			Certificates:       []tls.Certificate{cert},
-			RootCAs:            rootCerts.CertPool,
-			InsecureSkipVerify: params.Insecure,
-		},
-	}
-	return &http.Client{
-		Transport: transport,
-	}, nil
-}
-
 // DoHTTP3rdCopy triggers a third party copy
-func DoHTTP3rdCopy(params *Params, source, destination string) error {
-	client, err := buildHttpClient(params)
+func DoHTTP3rdCopy(params *Params, lifetime time.Duration, source, destination string) error {
+	client, err := BuildHttpClient(params)
 	if err != nil {
 		return err
 	}
 
-	destinationToken, err := getMacaroon(client, params.Lifetime, destination)
+	destinationToken, err := GetMacaroon(client, &MacaroonRequest{
+		Resource:   destination,
+		Lifetime:   lifetime,
+		Activities: []string{Upload},
+	})
 	if err != nil {
 		return err
 	}
 
 	logrus.Info("Got macaroon ", destinationToken.Macaroon)
 
+	// TODO: Parse response
 	return requestRawCopy(client, source, destination, destinationToken.Macaroon)
-}
-
-// GetMacaroon returns just the Macaroon for the given URL
-func GetMacaroon(params *Params, destination string) (*MacaroonResponse, error) {
-	client, err := buildHttpClient(params)
-	if err != nil {
-		return nil, err
-	}
-
-	return getMacaroon(client, params.Lifetime, destination)
 }

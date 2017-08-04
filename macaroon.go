@@ -4,19 +4,35 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"time"
 )
 
+const (
+	Download = "DOWNLOAD"
+	Upload   = "UPLOAD"
+	List     = "LIST"
+	Delete   = "DELETE"
+	Manage   = "MANAGE"
+)
+
 type (
-	// MacaroonRequest models a Macaroon request sent to the server
-	MacaroonRequest struct {
-		// List of caveats
+	// jsonMacaroonRequest models a Macaroon request sent to the server
+	jsonMacaroonRequest struct {
+		// List of serialized caveats
 		Caveats []string `json:"caveats,omitempty"`
+	}
+
+	// MacaroonRequest wraps the supported request fields for a Grid SE Macaroon
+	MacaroonRequest struct {
+		Resource   string
+		Lifetime   time.Duration
+		Activities []string
 	}
 
 	// MacaroonResponse models the reply from the server
@@ -31,19 +47,22 @@ type (
 	}
 )
 
-// buildMacaroonRequest builds a Macaroon request
-func buildMacaroonRequest(lifetime time.Duration, resource string) (*http.Request, error) {
-	before := time.Now().Add(lifetime).UTC()
-
-	payload := &MacaroonRequest{
+// buildHTTPRequest builds a Macaroon request
+func buildHTTPRequest(request *MacaroonRequest) (*http.Request, error) {
+	payload := &jsonMacaroonRequest{
 		Caveats: []string{
-			"activity:UPLOAD",
-			fmt.Sprint("before:", before.Format(time.RFC3339)),
+			fmt.Sprint("activity:", strings.Join(request.Activities, ",")),
 		},
 	}
-	payloadData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
+
+	if request.Lifetime > 0 {
+		before := time.Now().Add(request.Lifetime).UTC()
+		payload.Caveats = append(payload.Caveats, fmt.Sprint("before:", before.Format(time.RFC3339)))
+	}
+
+	payloadData, e := json.Marshal(payload)
+	if e != nil {
+		return nil, e
 	}
 
 	req := &http.Request{
@@ -51,37 +70,37 @@ func buildMacaroonRequest(lifetime time.Duration, resource string) (*http.Reques
 		Header: http.Header{},
 	}
 	req.Header.Add("Content-Type", "application/macaroon-request")
-	req.URL, err = url.Parse(resource)
-	if err != nil {
-		return nil, err
+	req.URL, e = url.Parse(request.Resource)
+	if e != nil {
+		return nil, e
 	}
 	req.Body = ioutil.NopCloser(bytes.NewReader(payloadData))
 	req.ContentLength = int64(len(payloadData))
 	return req, nil
 }
 
-// getMacaroon returns a token for the resource
-func getMacaroon(client *http.Client, lifetime time.Duration, resource string) (*MacaroonResponse, error) {
-	req, err := buildMacaroonRequest(lifetime, resource)
-	if err != nil {
-		return nil, err
+// GetMacaroon returns a token for the resource
+func GetMacaroon(client *http.Client, request *MacaroonRequest) (*MacaroonResponse, error) {
+	req, e := buildHTTPRequest(request)
+	if e != nil {
+		return nil, e
 	}
 
-	reqRaw, err := httputil.DumpRequest(req, true)
-	if err != nil {
-		return nil, err
+	reqRaw, e := httputil.DumpRequest(req, true)
+	if e != nil {
+		return nil, e
 	}
 	logrus.Debug(string(reqRaw))
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	resp, e := client.Do(req)
+	if e != nil {
+		return nil, e
 	}
 	logrus.Debug("Response status code: ", resp.StatusCode)
 
-	respBody, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	respBody, e := ioutil.ReadAll(resp.Body)
+	if e != nil {
+		return nil, e
 	}
 
 	logrus.Debug("Response: ", string(respBody))
@@ -91,6 +110,6 @@ func getMacaroon(client *http.Client, lifetime time.Duration, resource string) (
 	}
 
 	tokenResponse := &MacaroonResponse{}
-	err = json.Unmarshal(respBody, tokenResponse)
-	return tokenResponse, err
+	e = json.Unmarshal(respBody, tokenResponse)
+	return tokenResponse, e
 }
