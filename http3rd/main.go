@@ -6,6 +6,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/ayllon/http3rd"
 	"gitlab.cern.ch/flutter/go-proxy"
+	"time"
 )
 
 // Setup the logger
@@ -39,6 +40,7 @@ func main() {
 	capathFlag := flag.String("capath", "/etc/grid-security/certificates", "CA Path")
 	insecureFlag := flag.Bool("insecure", false, "Do not validate the remote certificates")
 	onlyMacaroon := flag.Bool("macaroon", false, "Only request and print the macaroon for the given url")
+	lifetime := flag.Duration("lifetime", time.Minute, "Lifetime of the requested token")
 
 	flag.Parse()
 	if *onlyMacaroon && flag.NArg() != 1 {
@@ -57,6 +59,7 @@ func main() {
 		UserKey:  ukey,
 		CAPath:   *capathFlag,
 		Insecure: *insecureFlag,
+		Lifetime: *lifetime,
 	}
 
 	if *onlyMacaroon {

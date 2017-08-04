@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 )
 
 type (
@@ -31,9 +32,14 @@ type (
 )
 
 // buildMacaroonRequest builds a Macaroon request
-func buildMacaroonRequest(resource string) (*http.Request, error) {
+func buildMacaroonRequest(lifetime time.Duration, resource string) (*http.Request, error) {
+	before := time.Now().Add(lifetime).UTC()
+
 	payload := &MacaroonRequest{
-		Caveats: []string{"activity:UPLOAD"},
+		Caveats: []string{
+			"activity:UPLOAD",
+			fmt.Sprint("before:", before.Format(time.RFC3339)),
+		},
 	}
 	payloadData, err := json.Marshal(payload)
 	if err != nil {
@@ -55,8 +61,8 @@ func buildMacaroonRequest(resource string) (*http.Request, error) {
 }
 
 // getMacaroon returns a token for the resource
-func getMacaroon(client *http.Client, resource string) (*MacaroonResponse, error) {
-	req, err := buildMacaroonRequest(resource)
+func getMacaroon(client *http.Client, lifetime time.Duration, resource string) (*MacaroonResponse, error) {
+	req, err := buildMacaroonRequest(lifetime, resource)
 	if err != nil {
 		return nil, err
 	}

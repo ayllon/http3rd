@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 )
 
 type (
@@ -18,6 +19,7 @@ type (
 		UserCert, UserKey string
 		CAPath            string
 		Insecure          bool
+		Lifetime          time.Duration
 	}
 )
 
@@ -136,7 +138,7 @@ func DoHTTP3rdCopy(params *Params, source, destination string) error {
 		return err
 	}
 
-	destinationToken, err := getMacaroon(client, destination)
+	destinationToken, err := getMacaroon(client, params.Lifetime, destination)
 	if err != nil {
 		return err
 	}
@@ -153,5 +155,5 @@ func GetMacaroon(params *Params, destination string) (*MacaroonResponse, error) 
 		return nil, err
 	}
 
-	return getMacaroon(client, destination)
+	return getMacaroon(client, params.Lifetime, destination)
 }
