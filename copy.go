@@ -145,3 +145,13 @@ func DoHTTP3rdCopy(params *Params, source, destination string) error {
 
 	return requestRawCopy(client, source, destination, destinationToken.Macaroon)
 }
+
+// GetMacaroon returns just the Macaroon for the given URL
+func GetMacaroon(params *Params, destination string) (*MacaroonResponse, error) {
+	client, err := buildHttpClient(params)
+	if err != nil {
+		return nil, err
+	}
+
+	return getMacaroon(client, destination)
+}

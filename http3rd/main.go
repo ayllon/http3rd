@@ -1,7 +1,8 @@
-package main 
+package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/ayllon/http3rd"
 	"gitlab.cern.ch/flutter/go-proxy"
@@ -37,24 +38,39 @@ func main() {
 	keyFlag := flag.String("key", "", "User private key")
 	capathFlag := flag.String("capath", "/etc/grid-security/certificates", "CA Path")
 	insecureFlag := flag.Bool("insecure", false, "Do not validate the remote certificates")
+	onlyMacaroon := flag.Bool("macaroon", false, "Only request and print the macaroon for the given url")
 
 	flag.Parse()
-	if flag.NArg() != 2 {
+	if *onlyMacaroon && flag.NArg() != 1 {
+		logrus.Fatal("Exactly one argument required for --macaroon")
+	} else if !*onlyMacaroon && flag.NArg() != 2 {
 		logrus.Fatal("Exactly two arguments required: source destination")
 	}
 
 	setupLogger(*debugFlag)
 	ucert, ukey := setupUserCredentials(*certFlag, *keyFlag)
-	source := flag.Arg(0)
-	destination := flag.Arg(1)
 
-	err := http3rd.DoHTTP3rdCopy(&http3rd.Params{
+	source := flag.Arg(0)
+
+	params := &http3rd.Params{
 		UserCert: ucert,
 		UserKey:  ukey,
 		CAPath:   *capathFlag,
 		Insecure: *insecureFlag,
-	}, source, destination)
-	if err != nil {
-		logrus.Fatal(err)
+	}
+
+	if *onlyMacaroon {
+		macaroon, err := http3rd.GetMacaroon(params, source)
+		if err != nil {
+			logrus.Fatal(err)
+		}
+		fmt.Println("Macaroon:", macaroon.Macaroon)
+		fmt.Println("URL + Macaroon:", macaroon.Uri.TargetWithMacaroon)
+	} else {
+		destination := flag.Arg(1)
+		err := http3rd.DoHTTP3rdCopy(params, source, destination)
+		if err != nil {
+			logrus.Fatal(err)
+		}
 	}
 }
