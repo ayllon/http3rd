@@ -81,7 +81,7 @@ func DoHTTP3rdCopy(params *Params, lifetime time.Duration, source, destination s
 	destinationToken, err := GetMacaroon(client, &MacaroonRequest{
 		Resource:   destination,
 		Lifetime:   lifetime,
-		Activities: []string{Upload},
+		Activities: []string{Upload,List},
 	})
 	if err != nil {
 		return err
