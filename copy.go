@@ -8,7 +8,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"time"
-	"errors"
 )
 
 type (
@@ -19,31 +18,6 @@ type (
 		Insecure          bool
 	}
 )
-
-// http.Do only follows redirects for GET, HEAD, POST and PUT
-// For COPY we have to do it ourselves (bummer)
-func doWithRedirect(client *http.Client, r *http.Request) (resp *http.Response, err error) {
-	jumps := 10
-
-	for {
-		resp, err = client.Do(r)
-		if err != nil || resp.StatusCode/100 != 3 {
-			return
-		}
-		if jumps--; jumps <= 0 {
-			err = errors.New("stopped after 10 redirects")
-			return
-		}
-		location := resp.Header.Get("Location")
-		r.URL, err = url.Parse(location)
-		if err != nil {
-			return
-		}
-		logrus.Debug("Following redirect: ", location)
-	}
-
-	return
-}
 
 // buildCopyRequest returns an initialized HTTP COPY request
 func buildCopyRequest(source, destination, macaroon string) (*http.Request, error) {
@@ -78,7 +52,7 @@ func requestRawCopy(client *http.Client, source string, destination, macaroon st
 	}
 	logrus.Debug(string(rawReq))
 
-	resp, err := doWithRedirect(client, req)
+	resp, err := DoWithRedirect(client, req)
 	if err != nil {
 		return err
 	}

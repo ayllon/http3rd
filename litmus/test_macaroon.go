@@ -11,6 +11,7 @@ import (
 	"gopkg.in/check.v1"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"time"
 )
@@ -73,6 +74,8 @@ type MacaroonTestSuite struct {
 	// Any file we can use to test downloads and such (can't download a directory!)
 	file    string
 	fileURL string
+	// For upload
+	upUrl string
 }
 
 // NewDavClient creates a new initialized DAV client
@@ -109,8 +112,20 @@ func (s *MacaroonTestSuite) SetUpSuite(c *check.C) {
 
 	if baseURL[len(baseURL)-1] != '/' {
 		s.fileURL = baseURL + "/" + s.file
+		s.upUrl = baseURL + "/macaroon-test-upload"
 	} else {
 		s.fileURL = baseURL + s.file
+		s.upUrl = baseURL + "macaroon-test-upload"
+	}
+}
+
+// SetUpTest does a bit of cleaning up per test
+func (s *MacaroonTestSuite) SetUpTest(c *check.C) {
+	dav := gowebdav.NewClient(baseURL, "", "")
+	dav.SetTransport(s.x509client.Transport)
+	e := dav.Remove("macaroon-test-upload")
+	if e != nil {
+		c.Fatal(e)
 	}
 }
 
@@ -503,6 +518,49 @@ func (s *MacaroonTestSuite) TestDownloadAndStat(c *check.C) {
 	}
 	if code != 200 {
 		c.Error("Expecting a 200, got ", code)
+	}
+}
+
+// TestUpload will try to upload a file using a macaroon
+func (s *MacaroonTestSuite) TestUpload(c *check.C) {
+	req := &http3rd.MacaroonRequest{
+		Resource:   s.upUrl,
+		Activities: []string{http3rd.Upload},
+		Lifetime:   time.Minute * 2,
+	}
+	m, e := http3rd.GetMacaroon(s.x509client, req)
+	if e != nil {
+		c.Fatal(e)
+	}
+
+	// Upload
+	stat, e := os.Stat("/etc/hosts")
+	if e != nil {
+		c.Fatal(e)
+	}
+
+	putReq := &http.Request{
+		Method: "PUT",
+		Header: make(http.Header),
+	}
+	putReq.Header.Add("Authorization", "BEARER "+m.Macaroon)
+	putReq.Header.Add("Expect", "100-continue")
+	putReq.URL, _ = url.Parse(req.Resource)
+	putReq.Body, e = os.Open("/etc/hosts")
+	putReq.ContentLength = stat.Size()
+
+	if e != nil {
+		c.Fatal(e)
+	}
+
+	resp, e := http3rd.DoWithRedirect(s.client, putReq)
+	if e != nil {
+		c.Fatal(e)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 201 {
+		c.Error("Expecting a 201, got ", resp.StatusCode)
 	}
 }
 
